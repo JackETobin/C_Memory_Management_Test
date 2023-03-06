@@ -1,6 +1,6 @@
 #include "TestMain.h"
 
-int 
+uint8 
 AlignToSize(size_t *sizeToAlign, size_t alignment)
 {
 	size_t Misalignment = *sizeToAlign % alignment;
