@@ -91,8 +91,8 @@ typedef struct BlockBody
 void
 DBSetInitValues
 (
-	uint64			newBlockSize,
-	uint64			newBlockAlignment,
+	uint64			newSlotSize,
+	uint64			newSlotAlignment,
 	uint64			newPoolSize,
 	uint64			newPoolAlignment
 );
