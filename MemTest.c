@@ -215,7 +215,7 @@ DBBlockSize(block_handle blockToCheck)
 {
 	uint32 BlockDataSize = blockToCheck->elementCount * blockToCheck->elementSize;
 	uint32 BlockDataPtrBuf = blockToCheck->elementCount * sizeof(data_handle);
-	uint32 BlockSize = BlockDataSize + BlockDataPtrBuf;
+	uint32 BlockSize = BlockDataSize + BlockDataPtrBuf + sizeof(block);
 
 	return BlockSize;
 }
@@ -249,7 +249,7 @@ DB_Set(block_handle target, void* data, uint32 atElement)
 {
 	handle ElementAccess = *((data_handle)target->data + atElement);
 	for(uint32 i = 0; i < target->elementSize; i++)
-	*((char*)ElementAccess) = *((char*)data);
+	*((char*)ElementAccess + i) = *((char*)data + i);
 
 	return EXIT_SUCCESS;
 }
@@ -282,10 +282,11 @@ DB_Push()
 	return EXIT_SUCCESS;
 }
 
-block 
+block_handle
 DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
 {
 	block TempBlock;
+	block_handle TempBlockHandle;
 	TempBlock.push = DB_Push;
 	TempBlock.push_at = DB_PushAtLocation;
 	TempBlock.pop = DB_Pop;
@@ -296,19 +297,21 @@ DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
 	TempBlock.elementCount = numElements;
 	TempBlock.elementSize = dataSize;
 
-	uint64 RequiredSpace = (numElements * dataSize) + (numElements * sizeof(data_handle));
+	uint64 RequiredSpace = (numElements * dataSize) + (numElements * sizeof(data_handle)) + sizeof(block);
 	AlignToSize(&RequiredSpace, SLOT_SIZE);
 	uint32 NumSlots = RequiredSpace / SLOT_SIZE;
 	uint32 OpenSpaceIndex = 0;
 	DBFindSpace(NumSlots, &OpenSpaceIndex, targetPool);
 	
-	TempBlock.data = targetPool->begin + (OpenSpaceIndex * SLOT_SIZE);
+	TempBlock.data = targetPool->begin + (OpenSpaceIndex * SLOT_SIZE) + sizeof(block);
 	handle FirstElement = TempBlock.data + numElements * sizeof(data_handle);
 	while (numElements--)
 	{
 		*((data_handle)TempBlock.data + numElements) = (handle)(FirstElement + (numElements * dataSize));
 	}	
 
+	*((block_handle)targetPool->begin + (OpenSpaceIndex * SLOT_SIZE)) = TempBlock;
+	TempBlockHandle = (block_handle)targetPool->begin + (OpenSpaceIndex * SLOT_SIZE);
 	targetPool->openSlots -= NumSlots;
-	return TempBlock;
+	return TempBlockHandle;
 }
