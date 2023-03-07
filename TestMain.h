@@ -124,7 +124,7 @@ DBSlotCount
 	block_handle	blockToCheck
 );
 
-block
+block_handle
 DBBuildBlock
 (
 	uint32			numElements,
