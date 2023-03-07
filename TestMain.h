@@ -7,6 +7,7 @@
 #define global_persist static
 
 typedef void* handle;
+typedef handle *data_handle;
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned int uint32;
@@ -73,7 +74,6 @@ typedef struct StaticPoolData
 	uint32						freeIndex;
 }pool_static, *pool_handle;
 
-typedef handle *data_handle;
 typedef struct BlockBody
 {	
 	data_handle					data;	
