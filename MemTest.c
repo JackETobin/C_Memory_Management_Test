@@ -248,8 +248,8 @@ uint8
 DB_Set(block_handle target, void* data, uint32 atElement)
 {
 	handle ElementAccess = *((data_handle)target->data + atElement);
-	for(uint32 i = 0; i < target->elementSize; i++)
-	*((char*)ElementAccess + i) = *((char*)data + i);
+	for (uint32 i = 0; i < target->elementSize; i++)
+		*((char*)ElementAccess + i) = *((char*)data + i);
 
 	return EXIT_SUCCESS;
 }
@@ -285,33 +285,30 @@ DB_Push()
 block_handle
 DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
 {
-	block TempBlock;
-	block_handle TempBlockHandle;
-	TempBlock.push = DB_Push;
-	TempBlock.push_at = DB_PushAtLocation;
-	TempBlock.pop = DB_Pop;
-	TempBlock.pop_at = DB_PopAtLocation;
-	TempBlock.set = DB_Set;
-	TempBlock.resize = DB_Resize;
-	TempBlock.clear = DB_Clear;
-	TempBlock.elementCount = numElements;
-	TempBlock.elementSize = dataSize;
-
 	uint64 RequiredSpace = (numElements * dataSize) + (numElements * sizeof(data_handle)) + sizeof(block);
 	AlignToSize(&RequiredSpace, SLOT_SIZE);
 	uint32 NumSlots = RequiredSpace / SLOT_SIZE;
 	uint32 OpenSpaceIndex = 0;
 	DBFindSpace(NumSlots, &OpenSpaceIndex, targetPool);
-	
-	TempBlock.data = targetPool->begin + (OpenSpaceIndex * SLOT_SIZE) + sizeof(block);
-	handle FirstElement = TempBlock.data + numElements * sizeof(data_handle);
-	while (numElements--)
-	{
-		*((data_handle)TempBlock.data + numElements) = (handle)(FirstElement + (numElements * dataSize));
-	}	
 
-	*((block_handle)targetPool->begin + (OpenSpaceIndex * SLOT_SIZE)) = TempBlock;
-	TempBlockHandle = (block_handle)targetPool->begin + (OpenSpaceIndex * SLOT_SIZE);
+	block_handle TempBlockHandle = (block_handle)(targetPool->begin + (OpenSpaceIndex * SLOT_SIZE));
+	(char*)TempBlockHandle->data = (char*)TempBlockHandle + sizeof(block);
+	TempBlockHandle->elementCount = numElements;
+	TempBlockHandle->elementSize = dataSize;
+	TempBlockHandle->push = DB_Push;
+	TempBlockHandle->push_at = DB_PushAtLocation;
+	TempBlockHandle->pop = DB_Pop;
+	TempBlockHandle->pop_at = DB_PopAtLocation;
+	TempBlockHandle->set = DB_Set;
+	TempBlockHandle->resize = DB_Resize;
+	TempBlockHandle->clear = DB_Clear;
+	
+	handle FirstElement = TempBlockHandle->data + numElements;
+	for(uint32 i = 0; i < numElements; i++)
+	{
+		*((data_handle)TempBlockHandle->data + i) = (handle)(FirstElement + (i * dataSize));
+	}
+	
 	targetPool->openSlots -= NumSlots;
 	return TempBlockHandle;
 }
