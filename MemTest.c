@@ -188,26 +188,28 @@ DBFindSpace(uint32 slotsRequired, uint32* openSlotIndex, pool_handle targetPool)
 	uint64 TargetPoolSize = targetPool->end - targetPool->begin;
 	uint32 ConsecutiveOpenSlots = 0;
 	uint32 SlotsInPool = TargetPoolSize / SLOT_SIZE;
-	if (targetPool->voids)
+	handle SlotCheck;
+	
+	for (uint32 i = 0; i < SlotsInPool; i++)
 	{
-		for (uint32 i = 0; i < SlotsInPool; i++)
+		SlotCheck = targetPool->begin + (i * SLOT_SIZE);
+		if (*((uint32*)SlotCheck) == INIT_VALUE)
+			ConsecutiveOpenSlots++;
+		if (*((uint32*)SlotCheck) != INIT_VALUE)
+			ConsecutiveOpenSlots = 0;
+
+		if (ConsecutiveOpenSlots == slotsRequired)
 		{
-			if (*((uint32*)targetPool->begin + i) == INIT_VALUE)
-				ConsecutiveOpenSlots++;
-			if (*((uint32*)targetPool->begin + i) != INIT_VALUE)
-				ConsecutiveOpenSlots = 0;
-			if (ConsecutiveOpenSlots == slotsRequired)
-			{
-				*openSlotIndex = i - (ConsecutiveOpenSlots - 1);
-				return EXIT_SUCCESS;
-			}
+			*openSlotIndex = i - (ConsecutiveOpenSlots - 1);
+			return EXIT_SUCCESS;
 		}
-		//DEFRAG OR EXPANSION NECESSARY IF WE MAKE IT OUT OF THE LOOP
-		//PERFORMANCE: EXPANSION->NOT POSSIBLE IN STATIC CASE
-		//EFFICIENCY: DEFRAG->POSSIBLE IN STATIC CASE
 	}
-	*openSlotIndex = SlotsInPool - targetPool->openSlots;
-	return EXIT_SUCCESS;
+	//DEFRAG OR EXPANSION NECESSARY IF WE MAKE IT OUT OF THE LOOP
+	//PERFORMANCE: EXPANSION->NOT POSSIBLE IN STATIC CASE
+	//EFFICIENCY: DEFRAG->POSSIBLE IN STATIC CASE
+	
+		*openSlotIndex = INIT_VALUE;
+	return EXIT_POOLNOSPACE_ERROR;
 }
 
 uint32
@@ -231,54 +233,73 @@ DBSlotCount(block_handle blockToCheck)
 }
 
 uint8 
-DB_Clear()
+DB_Release(block_handle target)
 {
-	
+	target->inPool->openSlots += target->elementCount;
+	uint64 ReleaseSize = (DBSlotCount(target) * SLOT_SIZE);
+	if (ReleaseSize % sizeof(uint32) == 0)
+	{
+		ReleaseSize = ReleaseSize / sizeof(uint32);
+		while (ReleaseSize--)
+			*((uint32*)target + ReleaseSize) = INIT_VALUE;
+	}
+	else
+	{
+		unsigned char Release = 0xFF;
+		while(ReleaseSize--)
+			*((unsigned char*)target + ReleaseSize) = Release;
+	}
 	return EXIT_SUCCESS;
 }
 
 uint8 
-DB_Resize()
+DB_Resize(block_handle target, uint32 newNumElements)
 {
-	
+	block_handle NewHandle = DBBuildBlock(newNumElements, target->elementSize, target->inPool);
+	if (NewHandle->elementCount > target->elementCount)
+	{
+		for (uint32 i = 0; i < target->elementCount; i++)
+			NewHandle->set(NewHandle, *((data_handle)target->data + i), i);
+	}
+	if (NewHandle->elementCount < target->elementCount)
+	{
+		for (uint32 i = 0; i < NewHandle->elementCount; i++)
+			NewHandle->set(NewHandle, *((data_handle)target->data + i), i);
+	}
+
+	target->release(target);
+	*target = *NewHandle;	
+	if (!target)
+		return EXIT_BLOCKRESIZE_ERROR;
+
 	return EXIT_SUCCESS;
+}
+
+uint8 
+DB_Delete(block_handle target, uint32 elementToDelete)
+{
+	if ((elementToDelete) < target->elementCount);
+	{
+		uint64 ShiftSize = (target->elementCount - (elementToDelete)) * target->elementSize;
+		handle ElementToDelete = *((data_handle)target->data + elementToDelete);
+		for (uint64 i = 0; i < ShiftSize; i++)
+			*((char*)ElementToDelete + i) = *((char*)ElementToDelete + target->elementSize + i);
+	}
+	handle LastElement = *((data_handle)target->data + (target->elementCount - 1));
+		for (uint64 i = 0; i < target->elementSize; i++)
+			*((char*)LastElement + i) = 0;
 }
 
 uint8 
 DB_Set(block_handle target, void* data, uint32 atElement)
 {
+	if (atElement > (target->elementCount - 1))
+		return EXIT_OUTOFRANGE_ERROR;
+
 	handle ElementAccess = *((data_handle)target->data + atElement);
 	for (uint32 i = 0; i < target->elementSize; i++)
 		*((char*)ElementAccess + i) = *((char*)data + i);
 
-	return EXIT_SUCCESS;
-}
-
-uint8 
-DB_PopAtLocation()
-{
-	
-	return EXIT_SUCCESS;
-}
-
-uint8 
-DB_Pop()
-{
-	
-	return EXIT_SUCCESS;
-}
-
-uint8 
-DB_PushAtLocation()
-{
-	
-	return EXIT_SUCCESS;
-}
-
-uint8 
-DB_Push()
-{
-	
 	return EXIT_SUCCESS;
 }
 
@@ -290,24 +311,22 @@ DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
 	uint32 NumSlots = RequiredSpace / SLOT_SIZE;
 	uint32 OpenSpaceIndex = 0;
 	DBFindSpace(NumSlots, &OpenSpaceIndex, targetPool);
+	for (uint32 i = 0; i < NumSlots; i++)
+		*(char*)(targetPool->begin + (OpenSpaceIndex * SLOT_SIZE) + (i * SLOT_SIZE)) -= 1;	
 
 	block_handle TempBlockHandle = (block_handle)(targetPool->begin + (OpenSpaceIndex * SLOT_SIZE));
-	(char*)TempBlockHandle->data = (char*)TempBlockHandle + sizeof(block);
+	TempBlockHandle->data = (char*)TempBlockHandle + sizeof(block);
 	TempBlockHandle->elementCount = numElements;
 	TempBlockHandle->elementSize = dataSize;
-	TempBlockHandle->push = DB_Push;
-	TempBlockHandle->push_at = DB_PushAtLocation;
-	TempBlockHandle->pop = DB_Pop;
-	TempBlockHandle->pop_at = DB_PopAtLocation;
+	TempBlockHandle->inPool = targetPool;
 	TempBlockHandle->set = DB_Set;
+	TempBlockHandle->delete = DB_Delete;
 	TempBlockHandle->resize = DB_Resize;
-	TempBlockHandle->clear = DB_Clear;
+	TempBlockHandle->release = DB_Release;
 	
 	handle FirstElement = TempBlockHandle->data + numElements;
 	for(uint32 i = 0; i < numElements; i++)
-	{
 		*((data_handle)TempBlockHandle->data + i) = (handle)(FirstElement + (i * dataSize));
-	}
 	
 	targetPool->openSlots -= NumSlots;
 	return TempBlockHandle;
