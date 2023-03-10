@@ -231,45 +231,47 @@ DBSlotCount(block_handle blockToCheck)
 
 	return SlotCount;
 }
-
-uint8 
-DB_Release(block_handle target)
+void 
+DB_Release(block_handle* target)
 {
-	target->inPool->openSlots += target->elementCount;
-	uint64 ReleaseSize = (DBSlotCount(target) * SLOT_SIZE);
+	(*target)->inPool->openSlots += (*target)->elementCount;
+	uint64 ReleaseSize = (DBSlotCount(*target) * SLOT_SIZE);
+
+	block_handle tempAccess = *target;
+	*target = NULL;
 	if (ReleaseSize % sizeof(uint32) == 0)
 	{
 		ReleaseSize = ReleaseSize / sizeof(uint32);
 		while (ReleaseSize--)
-			*((uint32*)target + ReleaseSize) = INIT_VALUE;
+			*((uint32*)tempAccess + ReleaseSize) = INIT_VALUE;
 	}
 	else
 	{
 		unsigned char Release = 0xFF;
 		while(ReleaseSize--)
-			*((unsigned char*)target + ReleaseSize) = Release;
+			*((unsigned char*)tempAccess + ReleaseSize) = Release;
 	}
-	return EXIT_SUCCESS;
+	//return EXIT_SUCCESS;
 }
 
 uint8 
-DB_Resize(block_handle target, uint32 newNumElements)
-{
-	block_handle NewHandle = DBBuildBlock(newNumElements, target->elementSize, target->inPool);
-	if (NewHandle->elementCount > target->elementCount)
+DB_Resize(block_handle* target, uint32 newNumElements)
+{	
+	block_handle NewHandle = DBBuildBlock(newNumElements, (*target)->elementSize, (*target)->inPool);
+	if (NewHandle->elementCount > (*target)->elementCount)
 	{
-		for (uint32 i = 0; i < target->elementCount; i++)
-			NewHandle->set(NewHandle, *((data_handle)target->data + i), i);
+		for (uint32 i = 0; i < (*target)->elementCount; i++)
+			NewHandle->set(NewHandle, *((data_handle)(*target)->data + i), i);
 	}
-	if (NewHandle->elementCount < target->elementCount)
+	if (NewHandle->elementCount < (*target)->elementCount)
 	{
 		for (uint32 i = 0; i < NewHandle->elementCount; i++)
-			NewHandle->set(NewHandle, *((data_handle)target->data + i), i);
+			NewHandle->set(NewHandle, *((data_handle)(*target)->data + i), i);
 	}
 
-	target->release(target);
-	*target = *NewHandle;	
-	if (!target)
+	(*target)->release(target);
+	*target = NewHandle;
+	if (!(*target))
 		return EXIT_BLOCKRESIZE_ERROR;
 
 	return EXIT_SUCCESS;
@@ -291,7 +293,23 @@ DB_Delete(block_handle target, uint32 elementToDelete)
 }
 
 uint8 
-DB_Set(block_handle target, void* data, uint32 atElement)
+DB_Set_Shift(block_handle target, void* data)
+{
+	if (target->elementCount > 1)
+	{
+		uint64 ShiftSize = (target->elementCount - 1) * target->elementSize;
+		handle ElementToDelete = *((data_handle)target->data);
+		for (uint64 i = 0; i < ShiftSize; i++)
+			*((char*)ElementToDelete + i) = *((char*)ElementToDelete + target->elementSize + i);
+	}	
+	handle ElementAccess = *((data_handle)target->data + (target->elementCount - 1));
+	for (uint32 i = 0; i < target->elementSize; i++)
+		*((char*)ElementAccess + i) = *((char*)data + i);
+
+	return EXIT_SUCCESS;
+}
+
+uint8 DB_Set(block_handle target, void* data, uint32 atElement)
 {
 	if (atElement > (target->elementCount - 1))
 		return EXIT_OUTOFRANGE_ERROR;
@@ -320,6 +338,7 @@ DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
 	TempBlockHandle->elementSize = dataSize;
 	TempBlockHandle->inPool = targetPool;
 	TempBlockHandle->set = DB_Set;
+	TempBlockHandle->set_shift = DB_Set_Shift;
 	TempBlockHandle->delete = DB_Delete;
 	TempBlockHandle->resize = DB_Resize;
 	TempBlockHandle->release = DB_Release;
