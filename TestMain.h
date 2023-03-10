@@ -81,9 +81,10 @@ typedef struct BlockBody
 	uint32						elementSize;
 	pool_handle					inPool;
 	uint8(*set)(struct BlockBody* target, void* data, uint32 atElement);
+	uint8(*set_shift)(struct BlockBody* target, void* data);
 	uint8(*delete)(struct BlockBody* target, uint32 elementToDelete);
-	uint8(*resize)(struct BlockBody* target, uint32 newNumElements);
-	uint8(*release)(struct BlockBody* target);
+	uint8(*resize)(struct BlockBody** target, uint32 newNumElements);
+	void(*release)(struct BlockBody** target);
 }block, *block_handle;
 
 void
