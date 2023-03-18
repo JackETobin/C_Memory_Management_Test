@@ -310,7 +310,6 @@ DBSlotCount(block_handle blockToCheck)
 	return SlotCount;
 }
 
-
 /*
 DBRELEASE TAKES A DOUBLE POINTER TO A TARGET BLOCK AND IS CALLED VIA POINTER 
 FROM THE BLOCK ITSELF. THIS FUNCTION REINITIALIZES A TARGET BLOCK TO 0XFFFFFFFF, 
@@ -351,8 +350,11 @@ THE RESIZE.
 */
 uint8 
 DB_Resize(block_handle* target, uint32 newNumElements)
-{	
+{	//CREATES NEW BLOCK_HANDLE IN SAME POOL AND SAME ELEMENT SIZE AS POOL 
+	//TO BE RESIZED, BUT WITH NEW ELEMENT COUNT.
 	block_handle NewHandle = DBBuildBlock(newNumElements, (*target)->elementSize, (*target)->inPool);
+	//CHECKS IF NEW ELEMENT COUNT IS MORE OR LESS THAN PREVIOUS COUNT, THEN 
+	//COPIES DATA FROM PREVIOUS CORROSPONDING ELEMENTS.
 	if (NewHandle->elementCount > (*target)->elementCount)
 	{
 		for (uint32 i = 0; i < (*target)->elementCount; i++)
@@ -364,7 +366,9 @@ DB_Resize(block_handle* target, uint32 newNumElements)
 			NewHandle->set(NewHandle, *((data_handle)(*target)->data + i), i);
 	}
 
+	//RELEASES PREVIOUS HANDLE AND MEMORY OF POOL TO BE RESIZED.
 	(*target)->release(target);
+	//SETS PREVIOUS HANDLE TO NEW HANDLE.
 	*target = NewHandle;
 	if (!(*target))
 		return EXIT_BLOCKRESIZE_ERROR;
@@ -372,62 +376,101 @@ DB_Resize(block_handle* target, uint32 newNumElements)
 	return EXIT_SUCCESS;
 }
 
+/*
+DBDELETE TAKES A TARGET BLOCK_HANDLE, AND THE INDEX OF THE ELEMENT THAT IS TO BE 
+DELETED. THIS FUNCTION OVERWRITES THE DESIGNATED ELEMENT TO DELETE, AND SHIFTS 
+ALL ELEMENTS AFTERWARDS UP BY ONE. THE LAST ELEMENT IN THE BLOCK IS CLEARED AND 
+INITIALIZED TO ZERO.
+*/
 uint8 
 DB_Delete(block_handle target, uint32 elementToDelete)
-{
+{	//CHECKS TO SEE IF THE ELEMENT CHOSEN FOR DELETION IS THE LAST ELEMENT.
 	if ((elementToDelete) < target->elementCount);
 	{
+		//CALCULATES THE SIZE OF THE DATA TO BE SHIFTED BY ONE ELEMENT.
 		uint64 ShiftSize = (target->elementCount - (elementToDelete)) * target->elementSize;
+		//FINDS ELEMENT DESIGNATED FOR DELETION.
 		handle ElementToDelete = *((data_handle)target->data + elementToDelete);
+		//SHIFTS DATA UP BY ONE ELEMENT OVERWRITING THE ELEMENT DESIGNATED FOR DELETION.
 		for (uint64 i = 0; i < ShiftSize; i++)
 			*((char*)ElementToDelete + i) = *((char*)ElementToDelete + target->elementSize + i);
 	}
+	//FINDS LAST ELEMENT.
 	handle LastElement = *((data_handle)target->data + (target->elementCount - 1));
-		for (uint64 i = 0; i < target->elementSize; i++)
-			*((char*)LastElement + i) = 0;
+	//SETS LAST ELEMENT TO ZERO.
+	for (uint64 i = 0; i < target->elementSize; i++)
+		*((char*)LastElement + i) = 0;
 }
 
+/*
+DBSETSHIFT TAKES A TARGET BLOCK AND A POINTER TO DATA. THIS FUNCTION ADDS NEW 
+DATA TO THE LAST ELEMENT OF THE BLOCK AND SHIFTS ALL EXISTING ELEMENTS UP, 
+OVERWRITING THE FIRST ELEMENT.
+*/
 uint8 
 DB_Set_Shift(block_handle target, void* data)
-{
+{	//CHECKS TO SEE IF THE BLOCK HAS MORE THAN ONE ELEMENT.
 	if (target->elementCount > 1)
-	{
+	{	//CALCULATES THE SIZE OF THE SHIFT AND THE AMOUNT OF DATA THAT NEEDS SHIFTING.
 		uint64 ShiftSize = (target->elementCount - 1) * target->elementSize;
 		handle ElementToDelete = *((data_handle)target->data);
+		//SHIFTS ELEMENTS.
 		for (uint64 i = 0; i < ShiftSize; i++)
 			*((char*)ElementToDelete + i) = *((char*)ElementToDelete + target->elementSize + i);
-	}	
+	}
+	//FINDS INDEX OF THE LAST ELEMENT.
 	handle ElementAccess = *((data_handle)target->data + (target->elementCount - 1));
+	//WRITES DATA INTO THE LAST ELEMENT.
 	for (uint32 i = 0; i < target->elementSize; i++)
 		*((char*)ElementAccess + i) = *((char*)data + i);
 
 	return EXIT_SUCCESS;
 }
 
+/*
+DBSET TAKES A TARGET BLOCK, A POINTER TO DATA, AND THE INDEX OF THE ELEMENT 
+INTO WHICH THE DATA IS TO BE WRITTEN. THIS FUNCTION WRITES DATA INTO THE DESIGNATED 
+ELEMENT, AND WILL OVERWRITE EXISTING DATA SHOULD THE ELEMENT ALREADY BE OCCUPIED. 
+DATA THAT IS LARGER THAN THE ELEMENT SIZE WILL BE TRUNCATED AND DATA WILL NOT BE 
+WRITTEN INTO A NONEXISTANT ELEMENT.
+*/
 uint8 
 DB_Set(block_handle target, void* data, uint32 atElement)
-{
+{	//CHECKS TO SEE IF THE ELEMENT LISTED EXISTS IN THE BLOCK.
 	if (atElement > (target->elementCount - 1))
 		return EXIT_OUTOFRANGE_ERROR;
 
+	//GETS THE HANDLE OF THE DESIGNATED ELEMENT.
 	handle ElementAccess = *((data_handle)target->data + atElement);
+	//WRITES DATA INTO THE ELEMENT. 
 	for (uint32 i = 0; i < target->elementSize; i++)
 		*((char*)ElementAccess + i) = *((char*)data + i);
 
 	return EXIT_SUCCESS;
 }
 
+/*
+DBBUILDBLOCK TAKES A NUMBER OF DESIRED ELEMENTS, THE DESIRED SIZE OF EACH ELEMENT, 
+THE PANDLE OF THE TARGET POOL, AND RETURNS A BLOCK_HANDLE THAT POINTS TO THE NEWLY 
+CREATED BLOCK IN THE TARGET POOL. IF THE FUNCTION FAILS, IT RETURNS A NULL POINTER.
+*/
 block_handle
 DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
-{
+{	//CALCULATES THE TOTAL REQUIRED SPACE FOR THE BLOCK, AND ALIGNS THE BLOCK.
 	uint64 RequiredSpace = (numElements * dataSize) + (numElements * sizeof(data_handle)) + sizeof(block);
 	AlignToSize(&RequiredSpace, SLOT_SIZE);
 	uint32 NumSlots = RequiredSpace / SLOT_SIZE;
+	//CHECKS FOR OPEN SPACE IN THE TARGET POOL.
 	uint32 OpenSpaceIndex = 0;
 	DBFindSpace(NumSlots, &OpenSpaceIndex, targetPool);
+	//RETURNS NULL IF NO OPEN SPACE CAN BE FOUND.
+	if (OpenSpaceIndex == INIT_VALUE)
+		return NULL;
+	//ALTERS THE SLOT VALUE OVER THE SLOTS TO BE WRITTEN INTO, MAKING THEM UNDETECTABLE BY THE FINDSPACE FUNCTION.
 	for (uint32 i = 0; i < NumSlots; i++)
 		*(char*)(targetPool->begin + (OpenSpaceIndex * SLOT_SIZE) + (i * SLOT_SIZE)) -= 1;	
 
+	//SETS INFO AND POINTERS TO FUNCTIONS FOR NEWLY CREATED BLOCK.
 	block_handle TempBlockHandle = (block_handle)(targetPool->begin + (OpenSpaceIndex * SLOT_SIZE));
 	TempBlockHandle->data = (char*)TempBlockHandle + sizeof(block);
 	TempBlockHandle->elementCount = numElements;
@@ -439,10 +482,12 @@ DBBuildBlock(uint32 numElements, uint64 dataSize, pool_handle targetPool)
 	TempBlockHandle->resize = DB_Resize;
 	TempBlockHandle->release = DB_Release;
 	
+	//SETS ELEMENT POINTERS TO CORRESPONDING DATA ENTRIES.
 	handle FirstElement = TempBlockHandle->data + numElements;
 	for(uint32 i = 0; i < numElements; i++)
 		*((data_handle)TempBlockHandle->data + i) = (handle)(FirstElement + (i * dataSize));
 	
+	//SUBTRACTS THE NUNBER OF SLOTS USED FOR THE BLOCK FROM THE AVAILABLE SLOTS IN THE TARGET POOL.
 	targetPool->openSlots -= NumSlots;
 	return TempBlockHandle;
 }
