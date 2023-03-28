@@ -404,23 +404,23 @@ DB_Delete(block_handle target, uint32 elementToDelete)
 
 /*
 DBSETSHIFT TAKES A TARGET BLOCK AND A POINTER TO DATA. THIS FUNCTION ADDS NEW 
-DATA TO THE LAST ELEMENT OF THE BLOCK AND SHIFTS ALL EXISTING ELEMENTS UP, 
-OVERWRITING THE FIRST ELEMENT.
+DATA TO THE FIRST ELEMENT OF THE BLOCK AND SHIFTS ALL EXISTING ELEMENTS BACK, 
+OVERWRITING THE LAST ELEMENT.
 */
 uint8 
 DB_Set_Shift(block_handle target, void* data)
-{	//CHECKS TO SEE IF THE BLOCK HAS MORE THAN ONE ELEMENT.
+{	
+	//SETS ACCESS POINT TO THE START OF THE TARGET'S DATA ENTRIES.
+	handle ElementAccess = *((data_handle)target->data);
+	//CHECKS TO SEE IF THE BLOCK HAS MORE THAN ONE ELEMENT.
 	if (target->elementCount > 1)
 	{	//CALCULATES THE SIZE OF THE SHIFT AND THE AMOUNT OF DATA THAT NEEDS SHIFTING.
-		uint64 ShiftSize = (target->elementCount - 1) * target->elementSize;
-		handle ElementToDelete = *((data_handle)target->data);
+		uint64 ShiftSize = (target->elementCount) * (target->elementSize);		
 		//SHIFTS ELEMENTS.
-		for (uint64 i = 0; i < ShiftSize; i++)
-			*((char*)ElementToDelete + i) = *((char*)ElementToDelete + target->elementSize + i);
+		for(ShiftSize; ShiftSize > target->elementSize - 1; ShiftSize--)
+			*((char*)ElementAccess + ShiftSize) = *((char*)ElementAccess + ShiftSize - target->elementSize);		
 	}
-	//FINDS INDEX OF THE LAST ELEMENT.
-	handle ElementAccess = *((data_handle)target->data + (target->elementCount - 1));
-	//WRITES DATA INTO THE LAST ELEMENT.
+	//WRITES DATA INTO THE FIRST ELEMENT.
 	for (uint32 i = 0; i < target->elementSize; i++)
 		*((char*)ElementAccess + i) = *((char*)data + i);
 
